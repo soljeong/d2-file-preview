@@ -1,0 +1,9 @@
+{
+  "id": "d2-file-preview",
+  "name": "D2 File Preview",
+  "version": "1.0.0",
+  "minAppVersion": "1.8.0",
+  "description": "Edit D2 source files and automatically render SVG previews in Obsidian.",
+  "author": "soljeong",
+  "isDesktopOnly": true
+}
