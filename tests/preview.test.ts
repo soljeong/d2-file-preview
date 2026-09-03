@@ -230,4 +230,3 @@ describe("SVG preview leaf selection", () => {
     expect(newLeaf.detach).toHaveBeenCalledOnce();
   });
 });
-
