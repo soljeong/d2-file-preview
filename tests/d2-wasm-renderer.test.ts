@@ -4,6 +4,22 @@ import {
   WasmD2Renderer
 } from "../src/d2-wasm-renderer";
 
+const d2Runtime = vi.hoisted(() => ({
+  compile: vi.fn(),
+  render: vi.fn(),
+  terminate: vi.fn(),
+  ready: Promise.resolve()
+}));
+
+vi.mock("@d2lang/d2", () => ({
+  D2: class {
+    ready = d2Runtime.ready;
+    worker = { terminate: d2Runtime.terminate };
+    compile = d2Runtime.compile;
+    render = d2Runtime.render;
+  }
+}));
+
 function fakeEngine(): D2Engine {
   return {
     compile: vi.fn(),
@@ -136,5 +152,62 @@ describe("D2.js WASM renderer", () => {
     await renderer.dispose();
 
     expect(createEngine).not.toHaveBeenCalled();
+  });
+
+  it("disposes promptly and rejects rendering when compile never settles", async () => {
+    const engine = fakeEngine();
+    vi.mocked(engine.compile).mockReturnValue(new Promise(() => {}));
+    const renderer = new WasmD2Renderer(
+      async () => ({ fs: { "a.d2": "x" }, inputPath: "a.d2" }),
+      () => engine
+    );
+    const rendering = renderer.render("a.d2");
+    await vi.waitFor(() => expect(engine.compile).toHaveBeenCalledOnce());
+
+    const disposalResult = await Promise.race([
+      renderer.dispose().then(() => "disposed"),
+      new Promise<string>((resolve) => {
+        setTimeout(() => resolve("timed out"), 10);
+      })
+    ]);
+
+    expect(disposalResult).toBe("disposed");
+    await expect(rendering).rejects.toThrow("D2 renderer has been disposed");
+    expect(engine.dispose).toHaveBeenCalledOnce();
+  });
+
+  it("rejects renders after disposal without creating an engine", async () => {
+    const createEngine = vi.fn(() => fakeEngine());
+    const renderer = new WasmD2Renderer(
+      async () => ({ fs: { "a.d2": "x" }, inputPath: "a.d2" }),
+      createEngine
+    );
+    await renderer.dispose();
+
+    await expect(renderer.render("a.d2")).rejects.toThrow(
+      "D2 renderer has been disposed"
+    );
+    expect(createEngine).not.toHaveBeenCalled();
+  });
+
+  it("terminates the pinned D2.js browser worker exactly once", async () => {
+    d2Runtime.compile.mockReset();
+    d2Runtime.render.mockReset();
+    d2Runtime.terminate.mockReset();
+    d2Runtime.compile.mockResolvedValue({
+      diagram: {} as never,
+      renderOptions: {} as never
+    } as never);
+    d2Runtime.render.mockResolvedValue("<svg />");
+    const renderer = new WasmD2Renderer(async () => ({
+      fs: { "a.d2": "x" },
+      inputPath: "a.d2"
+    }));
+
+    await renderer.render("a.d2");
+    await renderer.dispose();
+    await renderer.dispose();
+
+    expect(d2Runtime.terminate).toHaveBeenCalledOnce();
   });
 });
