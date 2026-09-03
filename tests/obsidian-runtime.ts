@@ -1,11 +1,5 @@
 export class App {}
 
-export class FileSystemAdapter {
-  getBasePath(): string {
-    return "/vault";
-  }
-}
-
 export class FileView {
   file: TFile | null = null;
 
@@ -57,17 +51,6 @@ export class Plugin {
     this.registeredEvents.push(eventRef);
   }
 
-  addSettingTab(settingTab: unknown): void {
-    this.settingTabs.push(settingTab);
-  }
-
-  loadData(): Promise<null> {
-    return Promise.resolve(null);
-  }
 }
-
-export class PluginSettingTab {}
-
-export class Setting {}
 
 export class TFile {}

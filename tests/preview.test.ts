@@ -1,12 +1,10 @@
 import type {
   App,
-  TAbstractFile,
   TFile,
-  Vault,
   WorkspaceLeaf
 } from "obsidian";
 import { describe, expect, it, vi } from "vitest";
-import { PreviewManager, waitForVaultFile } from "../src/preview";
+import { PreviewManager } from "../src/preview";
 import { FileView as RuntimeFileView } from "./obsidian-runtime";
 
 type TestLeaf = {
@@ -180,112 +178,3 @@ describe("SVG preview leaf selection", () => {
   });
 });
 
-describe("rendered SVG Vault lookup", () => {
-  it("waits for the matching Vault create event when a new SVG is not indexed yet", async () => {
-    let indexedFile: TFile | null = null;
-    let onCreate: ((file: TAbstractFile) => unknown) | undefined;
-    const vault = {
-      getFileByPath: () => indexedFile,
-      on(name: string, callback: (file: TAbstractFile) => unknown) {
-        expect(name).toBe("create");
-        onCreate = callback;
-        return { id: "create-listener" };
-      },
-      offref: vi.fn()
-    } as unknown as Vault;
-    const pendingFile = waitForVaultFile(
-      vault,
-      "Architecture/network.svg",
-      new AbortController().signal
-    );
-    const createdFile = svgFile("Architecture/network.svg");
-
-    indexedFile = createdFile;
-    onCreate?.(createdFile);
-
-    await expect(pendingFile).resolves.toBe(createdFile);
-  });
-
-  it("keeps waiting beyond the old timeout until the SVG is indexed", async () => {
-    vi.useFakeTimers();
-    let indexedFile: TFile | null = null;
-    let onCreate: ((file: TAbstractFile) => unknown) | undefined;
-    const vault = {
-      getFileByPath: () => indexedFile,
-      on(_name: string, callback: (file: TAbstractFile) => unknown) {
-        onCreate = callback;
-        return { id: "create-listener" };
-      },
-      offref: vi.fn()
-    } as unknown as Vault;
-    const controller = new AbortController();
-
-    try {
-      const pendingFile = waitForVaultFile(
-        vault,
-        "Architecture/network.svg",
-        controller.signal
-      );
-      let settled = false;
-      void pendingFile.then(() => {
-        settled = true;
-      });
-      await vi.advanceTimersByTimeAsync(5000);
-
-      expect(settled).toBe(false);
-
-      const createdFile = svgFile("Architecture/network.svg");
-      indexedFile = createdFile;
-      onCreate?.(createdFile);
-
-      await expect(pendingFile).resolves.toBe(createdFile);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("resolves and removes the Vault listener when aborted", async () => {
-    const offref = vi.fn();
-    const vault = {
-      getFileByPath: () => null,
-      on: () => ({ id: "create-listener" }),
-      offref
-    } as unknown as Vault;
-    const controller = new AbortController();
-    const pendingFile = waitForVaultFile(
-      vault,
-      "Architecture/network.svg",
-      controller.signal
-    );
-    let result: TFile | null | undefined;
-    void pendingFile.then((file) => {
-      result = file;
-    });
-
-    controller.abort();
-    await Promise.resolve();
-
-    expect(result).toBeNull();
-    expect(offref).toHaveBeenCalledOnce();
-  });
-
-  it("does not subscribe when preview work was already aborted", async () => {
-    const on = vi.fn();
-    const vault = {
-      getFileByPath: () => null,
-      on,
-      offref: vi.fn()
-    } as unknown as Vault;
-    const controller = new AbortController();
-    controller.abort();
-
-    await expect(
-      waitForVaultFile(
-        vault,
-        "Architecture/network.svg",
-        controller.signal
-      )
-    ).resolves.toBeNull();
-    expect(on).not.toHaveBeenCalled();
-  });
-});

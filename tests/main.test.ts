@@ -79,6 +79,7 @@ describe("plugin lifecycle", () => {
       id: "create-new-d2-file",
       name: "Create new D2 file"
     });
+    expect(plugin.settingTabs).toHaveLength(0);
     expect(vault.on).toHaveBeenCalledOnce();
 
     getModifyHandler()?.({
