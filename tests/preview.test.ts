@@ -3,9 +3,14 @@ import type {
   TFile,
   WorkspaceLeaf
 } from "obsidian";
-import { describe, expect, it, vi } from "vitest";
+import { Platform } from "obsidian";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PreviewManager } from "../src/preview";
 import { FileView as RuntimeFileView } from "./obsidian-runtime";
+
+afterEach(() => {
+  Platform.isMobileApp = false;
+});
 
 type TestLeaf = {
   leaf: WorkspaceLeaf;
@@ -80,6 +85,32 @@ describe("SVG preview leaf selection", () => {
     expect(getLeaf).toHaveBeenCalledWith("split", "vertical");
     expect(newLeaf.openFile).toHaveBeenCalledOnce();
     expect(newLeaf.openFile).toHaveBeenCalledWith(target);
+  });
+
+  it("opens a new tab on mobile when the SVG is not already open", async () => {
+    Platform.isMobileApp = true;
+    const newLeaf = leafWithOpenFile("empty.svg");
+    const { app, getLeaf } = mockApp([], newLeaf.leaf);
+    const target = svgFile("Architecture/network.svg");
+
+    await new PreviewManager(app).openOrRefresh(target);
+
+    expect(getLeaf).toHaveBeenCalledOnce();
+    expect(getLeaf).toHaveBeenCalledWith("tab");
+    expect(newLeaf.openFile).toHaveBeenCalledWith(target);
+  });
+
+  it("reuses an existing SVG preview on mobile", async () => {
+    Platform.isMobileApp = true;
+    const matching = leafWithOpenFile("Architecture/network.svg");
+    const newLeaf = leafWithOpenFile("empty.svg");
+    const { app, getLeaf } = mockApp([matching.leaf], newLeaf.leaf);
+    const target = svgFile("Architecture/network.svg");
+
+    await new PreviewManager(app).openOrRefresh(target);
+
+    expect(getLeaf).not.toHaveBeenCalled();
+    expect(matching.openFile).toHaveBeenCalledWith(target);
   });
 
   it("does not reuse a leaf showing an unrelated SVG", async () => {
@@ -175,6 +206,28 @@ describe("SVG preview leaf selection", () => {
 
     expect(matching.openFile).not.toHaveBeenCalled();
     expect(getLeaf).not.toHaveBeenCalled();
+  });
+
+  it("detaches a new leaf when preview work is aborted after creation", async () => {
+    const controller = new AbortController();
+    const newLeaf = leafWithOpenFile("empty.svg");
+    const app = {
+      workspace: {
+        iterateAllLeaves() {},
+        getLeaf: vi.fn(() => {
+          controller.abort();
+          return newLeaf.leaf;
+        })
+      }
+    } as unknown as App;
+
+    await new PreviewManager(app).openOrRefresh(
+      svgFile("Architecture/network.svg"),
+      controller.signal
+    );
+
+    expect(newLeaf.openFile).not.toHaveBeenCalled();
+    expect(newLeaf.detach).toHaveBeenCalledOnce();
   });
 });
 

@@ -1,5 +1,6 @@
 import {
   FileView,
+  Platform,
   type App,
   type TFile,
   type WorkspaceLeaf
@@ -28,7 +29,9 @@ export class PreviewManager {
     if (signal?.aborted) return;
 
     if (targetLeaf === undefined) {
-      targetLeaf = this.app.workspace.getLeaf("split", "vertical");
+      targetLeaf = Platform.isMobileApp
+        ? this.app.workspace.getLeaf("tab")
+        : this.app.workspace.getLeaf("split", "vertical");
       createdLeaf = true;
     }
 

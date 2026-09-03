@@ -53,4 +53,8 @@ export class Plugin {
 
 }
 
+export class Platform {
+  static isMobileApp = false;
+}
+
 export class TFile {}
