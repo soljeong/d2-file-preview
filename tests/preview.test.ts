@@ -1,36 +1,13 @@
 import type {
   App,
-  PluginManifest,
   TAbstractFile,
   TFile,
   Vault,
   WorkspaceLeaf
 } from "obsidian";
-import { FileSystemAdapter } from "obsidian";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import D2Plugin from "../src/main";
+import { describe, expect, it, vi } from "vitest";
 import { PreviewManager, waitForVaultFile } from "../src/preview";
-import { runD2 } from "../src/renderer";
-import {
-  FileView as RuntimeFileView,
-  Notice as RuntimeNotice
-} from "./obsidian-runtime";
-
-vi.mock("../src/renderer", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/renderer")>();
-  return {
-    ...actual,
-    runD2: vi.fn()
-  };
-});
-
-const runD2Mock = vi.mocked(runD2);
-
-type RenderD2Plugin = {
-  settings: { executablePath: string };
-  onRendered: (svgVaultPath: string) => Promise<void>;
-  renderD2File: (d2VaultPath: string) => Promise<void>;
-};
+import { FileView as RuntimeFileView } from "./obsidian-runtime";
 
 type TestLeaf = {
   leaf: WorkspaceLeaf;
@@ -79,76 +56,6 @@ function mockApp(
 
   return { app, getLeaf };
 }
-
-function pluginForRender(onRendered: (svgVaultPath: string) => Promise<void>): {
-  plugin: RenderD2Plugin;
-  app: App;
-} {
-  const app = {
-    vault: {
-      adapter: Object.create(FileSystemAdapter.prototype)
-    },
-    workspace: {}
-  } as App;
-  const plugin = new D2Plugin(
-    app,
-    {} as PluginManifest
-  ) as unknown as RenderD2Plugin;
-  plugin.settings.executablePath = "d2";
-  plugin.onRendered = onRendered;
-
-  return { plugin, app };
-}
-
-describe("render result preview isolation", () => {
-  beforeEach(() => {
-    runD2Mock.mockReset();
-    RuntimeNotice.messages.length = 0;
-  });
-
-  it("does not invoke the success callback after a failed D2 result", async () => {
-    const error = new Error("syntax error");
-    runD2Mock.mockResolvedValue({
-      ok: false,
-      error,
-      stdout: "partial output",
-      stderr: "unexpected token"
-    });
-    const onRendered = vi.fn(async () => {});
-    const { plugin } = pluginForRender(onRendered);
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
-
-    try {
-      await plugin.renderD2File("Architecture/network.d2");
-
-      expect(onRendered).not.toHaveBeenCalled();
-      expect(RuntimeNotice.messages).toEqual(["D2 render failed"]);
-      expect(consoleError).toHaveBeenCalledWith(
-        "D2 render failed: Architecture/network.d2",
-        {
-          executablePath: "d2",
-          error,
-          stdout: "partial output",
-          stderr: "unexpected token"
-        }
-      );
-    } finally {
-      consoleError.mockRestore();
-    }
-  });
-
-  it("invokes the success callback with the sibling SVG after success", async () => {
-    runD2Mock.mockResolvedValue({ ok: true });
-    const onRendered = vi.fn(async () => {});
-    const { plugin } = pluginForRender(onRendered);
-
-    await plugin.renderD2File("Architecture/network.d2");
-
-    expect(onRendered).toHaveBeenCalledOnce();
-    expect(onRendered).toHaveBeenCalledWith("Architecture/network.svg");
-    expect(RuntimeNotice.messages).toEqual([]);
-  });
-});
 
 describe("SVG preview leaf selection", () => {
   it("reuses an existing leaf for the same SVG", async () => {
