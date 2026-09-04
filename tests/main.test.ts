@@ -148,4 +148,37 @@ describe("plugin lifecycle", () => {
     expect(mocks.render).not.toHaveBeenCalled();
     expect(mocks.dispose).toHaveBeenCalledOnce();
   });
+
+  it("silently cancels active and queued renders on unload without writing SVGs", async () => {
+    const { WasmD2Renderer } = await vi.importActual<
+      typeof import("../src/d2-wasm-renderer")
+    >("../src/d2-wasm-renderer");
+    const compile = vi.fn(() => new Promise<never>(() => {}));
+    const renderer = new WasmD2Renderer(
+      async (path) => ({ fs: { [path]: "a -> b" }, inputPath: path }),
+      () => ({
+        compile,
+        render: async () => "<svg />",
+        dispose: async () => {}
+      })
+    );
+    mocks.render.mockImplementation((path: string) => renderer.render(path));
+    mocks.dispose.mockImplementation(() => renderer.dispose());
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { plugin, getModifyHandler } = createPlugin();
+    await plugin.onload();
+    getModifyHandler()?.(runtimeFile("Architecture/active.d2", "d2"));
+    getModifyHandler()?.(runtimeFile("Architecture/queued.d2", "d2"));
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(compile).toHaveBeenCalledOnce();
+    expect(mocks.render).toHaveBeenCalledTimes(2);
+
+    plugin.onunload();
+    await vi.runAllTimersAsync();
+
+    expect(RuntimeNotice.messages).toEqual([]);
+    expect(consoleError).not.toHaveBeenCalled();
+    expect(mocks.writeSvg).not.toHaveBeenCalled();
+    expect(mocks.openOrRefresh).not.toHaveBeenCalled();
+  });
 });

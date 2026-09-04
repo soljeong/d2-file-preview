@@ -58,6 +58,7 @@ export default class D2Plugin extends Plugin {
         this.previewAbortController.signal
       );
     } catch (error) {
+      if (this.previewAbortController.signal.aborted) return;
       this.reportRenderFailure(
         d2VaultPath,
         error instanceof Error ? error : new Error(String(error))
