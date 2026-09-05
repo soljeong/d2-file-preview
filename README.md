@@ -1,30 +1,38 @@
 # D2 File Preview
 
-D2 File Preview is a desktop-only Obsidian plugin for editing `.d2` source files and automatically rendering sibling SVG previews.
+D2 File Preview lets you edit `.d2` files in Obsidian and automatically renders sibling SVG previews.
 
-## Requirements
-
-This plugin does not bundle D2. Install the D2 CLI separately and make the `d2` executable available on `PATH`, or set an explicit path in **Settings → D2 File Preview → D2 executable path**.
-
-The plugin launches that local D2 executable as an external process. The executable itself may be located outside your Obsidian vault. Diagram input and generated SVG output are limited to files in the current filesystem-backed vault.
-
-## Usage
-
-1. Run **Create new D2 file** from the Command Palette to create an empty `Untitled.d2` file.
-2. Edit the D2 source file.
-3. After one second without additional edits, the plugin runs the D2 CLI and creates or overwrites a sibling `.svg` file with the same base name.
-4. After the first successful render, the SVG opens in a split view. Later successful renders reuse and refresh that preview.
-
-If rendering fails, the plugin shows a short notice and writes detailed information to the developer console. The last successfully generated SVG remains unchanged, and rendering is retried after the next source edit.
+Rendering runs locally and offline through the bundled D2.js/WebAssembly engine. A separate D2 executable is not required.
 
 ## Platform support
 
-Desktop Obsidian only: Windows, macOS, and Linux. Mobile is not supported because the plugin relies on the local filesystem and an external executable.
+- Windows, macOS, and Linux are supported.
+- Android is supported and has been verified on a Samsung SM-T875N running Android 13 with Obsidian 1.13.8. The physical-device check passed simple render, edit/save refresh, vault-local relative import, and cold-start worker initialization.
+- iOS/iPadOS is not tested on a physical device yet, although installation is enabled. Please treat iOS/iPadOS support as unverified and report any worker, rendering, or preview issues.
+
+## Usage
+
+1. Run **Create new D2 file** from the Command Palette to create an empty `Untitled.d2` file, or open an existing `.d2` file.
+2. Edit the D2 source.
+3. After one second without additional edits, the plugin creates or overwrites a sibling `.svg` file with the same base name.
+4. After the first successful render, the SVG opens in a preview. Later successful renders reuse and refresh that preview.
+
+If rendering fails, the plugin shows a short notice and writes details to the developer console. The last successfully generated SVG remains unchanged, and rendering is retried after the next source edit.
+
+## Imports
+
+D2 imports between `.d2` files inside the current vault are supported, including relative imports. Imports outside the current vault are not supported.
+
+To let D2 resolve imports itself, the plugin supplies the vault's `.d2` files to the bundled renderer for each render. Very large vaults containing many D2 files may therefore take longer to render.
+
+## Upgrading from 1.0.x
+
+The plugin no longer uses a system D2 executable. The former **D2 executable path** setting has been removed; any previously saved value is ignored.
 
 ## MVP scope
 
-The MVP does not include a dedicated D2 editor, render-options UI, manual Render command, ribbon/context-menu actions, or automatic SVG cleanup after D2 rename/delete operations.
+The plugin does not include a dedicated D2 editor, render-options UI, manual Render command, ribbon/context-menu actions, or automatic SVG cleanup after D2 rename/delete operations.
 
 ## License
 
-MIT
+MIT. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the bundled D2.js dependency.
