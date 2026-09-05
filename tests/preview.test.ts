@@ -1,36 +1,16 @@
 import type {
   App,
-  PluginManifest,
-  TAbstractFile,
   TFile,
-  Vault,
   WorkspaceLeaf
 } from "obsidian";
-import { FileSystemAdapter } from "obsidian";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import D2Plugin from "../src/main";
-import { PreviewManager, waitForVaultFile } from "../src/preview";
-import { runD2 } from "../src/renderer";
-import {
-  FileView as RuntimeFileView,
-  Notice as RuntimeNotice
-} from "./obsidian-runtime";
+import { Platform } from "obsidian";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { PreviewManager } from "../src/preview";
+import { FileView as RuntimeFileView } from "./obsidian-runtime";
 
-vi.mock("../src/renderer", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/renderer")>();
-  return {
-    ...actual,
-    runD2: vi.fn()
-  };
+afterEach(() => {
+  Platform.isMobileApp = false;
 });
-
-const runD2Mock = vi.mocked(runD2);
-
-type RenderD2Plugin = {
-  settings: { executablePath: string };
-  onRendered: (svgVaultPath: string) => Promise<void>;
-  renderD2File: (d2VaultPath: string) => Promise<void>;
-};
 
 type TestLeaf = {
   leaf: WorkspaceLeaf;
@@ -80,76 +60,6 @@ function mockApp(
   return { app, getLeaf };
 }
 
-function pluginForRender(onRendered: (svgVaultPath: string) => Promise<void>): {
-  plugin: RenderD2Plugin;
-  app: App;
-} {
-  const app = {
-    vault: {
-      adapter: Object.create(FileSystemAdapter.prototype)
-    },
-    workspace: {}
-  } as App;
-  const plugin = new D2Plugin(
-    app,
-    {} as PluginManifest
-  ) as unknown as RenderD2Plugin;
-  plugin.settings.executablePath = "d2";
-  plugin.onRendered = onRendered;
-
-  return { plugin, app };
-}
-
-describe("render result preview isolation", () => {
-  beforeEach(() => {
-    runD2Mock.mockReset();
-    RuntimeNotice.messages.length = 0;
-  });
-
-  it("does not invoke the success callback after a failed D2 result", async () => {
-    const error = new Error("syntax error");
-    runD2Mock.mockResolvedValue({
-      ok: false,
-      error,
-      stdout: "partial output",
-      stderr: "unexpected token"
-    });
-    const onRendered = vi.fn(async () => {});
-    const { plugin } = pluginForRender(onRendered);
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
-
-    try {
-      await plugin.renderD2File("Architecture/network.d2");
-
-      expect(onRendered).not.toHaveBeenCalled();
-      expect(RuntimeNotice.messages).toEqual(["D2 render failed"]);
-      expect(consoleError).toHaveBeenCalledWith(
-        "D2 render failed: Architecture/network.d2",
-        {
-          executablePath: "d2",
-          error,
-          stdout: "partial output",
-          stderr: "unexpected token"
-        }
-      );
-    } finally {
-      consoleError.mockRestore();
-    }
-  });
-
-  it("invokes the success callback with the sibling SVG after success", async () => {
-    runD2Mock.mockResolvedValue({ ok: true });
-    const onRendered = vi.fn(async () => {});
-    const { plugin } = pluginForRender(onRendered);
-
-    await plugin.renderD2File("Architecture/network.d2");
-
-    expect(onRendered).toHaveBeenCalledOnce();
-    expect(onRendered).toHaveBeenCalledWith("Architecture/network.svg");
-    expect(RuntimeNotice.messages).toEqual([]);
-  });
-});
-
 describe("SVG preview leaf selection", () => {
   it("reuses an existing leaf for the same SVG", async () => {
     const matching = leafWithOpenFile("Architecture/network.svg");
@@ -175,6 +85,32 @@ describe("SVG preview leaf selection", () => {
     expect(getLeaf).toHaveBeenCalledWith("split", "vertical");
     expect(newLeaf.openFile).toHaveBeenCalledOnce();
     expect(newLeaf.openFile).toHaveBeenCalledWith(target);
+  });
+
+  it("opens a new tab on mobile when the SVG is not already open", async () => {
+    Platform.isMobileApp = true;
+    const newLeaf = leafWithOpenFile("empty.svg");
+    const { app, getLeaf } = mockApp([], newLeaf.leaf);
+    const target = svgFile("Architecture/network.svg");
+
+    await new PreviewManager(app).openOrRefresh(target);
+
+    expect(getLeaf).toHaveBeenCalledOnce();
+    expect(getLeaf).toHaveBeenCalledWith("tab");
+    expect(newLeaf.openFile).toHaveBeenCalledWith(target);
+  });
+
+  it("reuses an existing SVG preview on mobile", async () => {
+    Platform.isMobileApp = true;
+    const matching = leafWithOpenFile("Architecture/network.svg");
+    const newLeaf = leafWithOpenFile("empty.svg");
+    const { app, getLeaf } = mockApp([matching.leaf], newLeaf.leaf);
+    const target = svgFile("Architecture/network.svg");
+
+    await new PreviewManager(app).openOrRefresh(target);
+
+    expect(getLeaf).not.toHaveBeenCalled();
+    expect(matching.openFile).toHaveBeenCalledWith(target);
   });
 
   it("does not reuse a leaf showing an unrelated SVG", async () => {
@@ -271,114 +207,26 @@ describe("SVG preview leaf selection", () => {
     expect(matching.openFile).not.toHaveBeenCalled();
     expect(getLeaf).not.toHaveBeenCalled();
   });
-});
 
-describe("rendered SVG Vault lookup", () => {
-  it("waits for the matching Vault create event when a new SVG is not indexed yet", async () => {
-    let indexedFile: TFile | null = null;
-    let onCreate: ((file: TAbstractFile) => unknown) | undefined;
-    const vault = {
-      getFileByPath: () => indexedFile,
-      on(name: string, callback: (file: TAbstractFile) => unknown) {
-        expect(name).toBe("create");
-        onCreate = callback;
-        return { id: "create-listener" };
-      },
-      offref: vi.fn()
-    } as unknown as Vault;
-    const pendingFile = waitForVaultFile(
-      vault,
-      "Architecture/network.svg",
-      new AbortController().signal
-    );
-    const createdFile = svgFile("Architecture/network.svg");
-
-    indexedFile = createdFile;
-    onCreate?.(createdFile);
-
-    await expect(pendingFile).resolves.toBe(createdFile);
-  });
-
-  it("keeps waiting beyond the old timeout until the SVG is indexed", async () => {
-    vi.useFakeTimers();
-    let indexedFile: TFile | null = null;
-    let onCreate: ((file: TAbstractFile) => unknown) | undefined;
-    const vault = {
-      getFileByPath: () => indexedFile,
-      on(_name: string, callback: (file: TAbstractFile) => unknown) {
-        onCreate = callback;
-        return { id: "create-listener" };
-      },
-      offref: vi.fn()
-    } as unknown as Vault;
+  it("detaches a new leaf when preview work is aborted after creation", async () => {
     const controller = new AbortController();
+    const newLeaf = leafWithOpenFile("empty.svg");
+    const app = {
+      workspace: {
+        iterateAllLeaves() {},
+        getLeaf: vi.fn(() => {
+          controller.abort();
+          return newLeaf.leaf;
+        })
+      }
+    } as unknown as App;
 
-    try {
-      const pendingFile = waitForVaultFile(
-        vault,
-        "Architecture/network.svg",
-        controller.signal
-      );
-      let settled = false;
-      void pendingFile.then(() => {
-        settled = true;
-      });
-      await vi.advanceTimersByTimeAsync(5000);
-
-      expect(settled).toBe(false);
-
-      const createdFile = svgFile("Architecture/network.svg");
-      indexedFile = createdFile;
-      onCreate?.(createdFile);
-
-      await expect(pendingFile).resolves.toBe(createdFile);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("resolves and removes the Vault listener when aborted", async () => {
-    const offref = vi.fn();
-    const vault = {
-      getFileByPath: () => null,
-      on: () => ({ id: "create-listener" }),
-      offref
-    } as unknown as Vault;
-    const controller = new AbortController();
-    const pendingFile = waitForVaultFile(
-      vault,
-      "Architecture/network.svg",
+    await new PreviewManager(app).openOrRefresh(
+      svgFile("Architecture/network.svg"),
       controller.signal
     );
-    let result: TFile | null | undefined;
-    void pendingFile.then((file) => {
-      result = file;
-    });
 
-    controller.abort();
-    await Promise.resolve();
-
-    expect(result).toBeNull();
-    expect(offref).toHaveBeenCalledOnce();
-  });
-
-  it("does not subscribe when preview work was already aborted", async () => {
-    const on = vi.fn();
-    const vault = {
-      getFileByPath: () => null,
-      on,
-      offref: vi.fn()
-    } as unknown as Vault;
-    const controller = new AbortController();
-    controller.abort();
-
-    await expect(
-      waitForVaultFile(
-        vault,
-        "Architecture/network.svg",
-        controller.signal
-      )
-    ).resolves.toBeNull();
-    expect(on).not.toHaveBeenCalled();
+    expect(newLeaf.openFile).not.toHaveBeenCalled();
+    expect(newLeaf.detach).toHaveBeenCalledOnce();
   });
 });

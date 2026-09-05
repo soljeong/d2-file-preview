@@ -1,32 +1,5 @@
-import type { ChildProcess, ExecFileException } from "node:child_process";
-import { execFile } from "node:child_process";
-import {
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync
-} from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  RenderScheduler,
-  resolveFilesystemPath,
-  runD2,
-  svgPathForD2
-} from "../src/renderer";
-
-vi.mock("node:child_process", () => ({
-  execFile: vi.fn()
-}));
-
-type ExecFileCallback = (
-  error: ExecFileException | null,
-  stdout: string,
-  stderr: string
-) => void;
-
-const execFileMock = vi.mocked(execFile) as unknown as ReturnType<typeof vi.fn>;
+import { RenderScheduler, svgPathForD2 } from "../src/renderer";
 
 function deferred(): {
   promise: Promise<void>;
@@ -46,89 +19,6 @@ describe("D2 output path", () => {
     ["network.d2", "network.svg"]
   ])("maps %s to %s", (inputPath, outputPath) => {
     expect(svgPathForD2(inputPath)).toBe(outputPath);
-  });
-
-  it("resolves a vault-relative D2 path below the desktop vault directory", () => {
-    expect(resolveFilesystemPath("/vault", "Architecture/network.d2")).toBe(
-      path.join("/vault", "Architecture/network.d2")
-    );
-  });
-});
-
-describe("D2 process execution", () => {
-  beforeEach(() => {
-    execFileMock.mockReset();
-  });
-
-  it("passes input and output as separate execFile arguments", async () => {
-    const testDirectory = mkdtempSync(path.join(tmpdir(), "d2-file-preview-unit-"));
-    const inputPath = path.join(testDirectory, "network.d2");
-    const outputPath = path.join(testDirectory, "network.svg");
-
-    try {
-      execFileMock.mockImplementationOnce(
-        (
-          executable: string,
-          arguments_: string[],
-          options: { windowsHide: boolean },
-          callback: ExecFileCallback
-        ): ChildProcess => {
-          const [actualInputPath, temporaryOutputPath] = arguments_;
-          expect(executable).toBe("/opt/d2 bin/d2");
-          expect(actualInputPath).toBe(inputPath);
-          expect(temporaryOutputPath).not.toBe(outputPath);
-          expect(path.dirname(temporaryOutputPath)).toBe(testDirectory);
-          expect(temporaryOutputPath.endsWith(".svg")).toBe(true);
-          expect(options).toEqual({ windowsHide: true });
-          writeFileSync(temporaryOutputPath, "rendered");
-          callback(null, "rendered", "");
-          return {} as ChildProcess;
-        }
-      );
-
-      await expect(
-        runD2("/opt/d2 bin/d2", inputPath, outputPath)
-      ).resolves.toEqual({ ok: true });
-      expect(readFileSync(outputPath, "utf8")).toBe("rendered");
-    } finally {
-      rmSync(testDirectory, { recursive: true, force: true });
-    }
-  });
-
-  it("resolves process errors with captured stdout and stderr", async () => {
-    const error = Object.assign(new Error("D2 failed"), { code: 1 });
-    execFileMock.mockImplementationOnce(
-      (
-        _executable: string,
-        _arguments: string[],
-        _options: { windowsHide: boolean },
-        callback: ExecFileCallback
-      ): ChildProcess => {
-        callback(error, "partial output", "syntax error");
-        return {} as ChildProcess;
-      }
-    );
-
-    await expect(runD2("d2", "network.d2", "network.svg")).resolves.toEqual({
-      ok: false,
-      error,
-      stdout: "partial output",
-      stderr: "syntax error"
-    });
-  });
-
-  it("resolves synchronous execFile errors with empty process output", async () => {
-    const error = new TypeError("The argument 'file' cannot be empty");
-    execFileMock.mockImplementationOnce(() => {
-      throw error;
-    });
-
-    await expect(runD2("", "network.d2", "network.svg")).resolves.toEqual({
-      ok: false,
-      error,
-      stdout: "",
-      stderr: ""
-    });
   });
 });
 

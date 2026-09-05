@@ -1,60 +1,10 @@
 import {
   FileView,
+  Platform,
   type App,
-  type EventRef,
   type TFile,
-  type Vault,
   type WorkspaceLeaf
 } from "obsidian";
-
-export function waitForVaultFile(
-  vault: Vault,
-  path: string,
-  signal: AbortSignal
-): Promise<TFile | null> {
-  if (signal.aborted) return Promise.resolve(null);
-
-  const existingFile = vault.getFileByPath(path);
-  if (existingFile !== null) return Promise.resolve(existingFile);
-
-  return new Promise((resolve) => {
-    let eventRef: EventRef | undefined;
-    let settled = false;
-
-    const finish = (file: TFile | null): void => {
-      if (settled) return;
-      settled = true;
-      if (eventRef !== undefined) vault.offref(eventRef);
-      signal.removeEventListener("abort", onAbort);
-      resolve(file);
-    };
-
-    const onAbort = (): void => finish(null);
-    signal.addEventListener("abort", onAbort, { once: true });
-
-    if (signal.aborted) {
-      finish(null);
-      return;
-    }
-
-    eventRef = vault.on("create", (file) => {
-      if (file.path !== path) return;
-      const indexedFile = vault.getFileByPath(path);
-      if (indexedFile !== null) finish(indexedFile);
-    });
-
-    if (settled) {
-      vault.offref(eventRef);
-      return;
-    }
-
-    const indexedAfterSubscription = vault.getFileByPath(path);
-    if (indexedAfterSubscription !== null) {
-      finish(indexedAfterSubscription);
-      return;
-    }
-  });
-}
 
 export class PreviewManager {
   constructor(private readonly app: App) {}
@@ -79,7 +29,9 @@ export class PreviewManager {
     if (signal?.aborted) return;
 
     if (targetLeaf === undefined) {
-      targetLeaf = this.app.workspace.getLeaf("split", "vertical");
+      targetLeaf = Platform.isMobileApp
+        ? this.app.workspace.getLeaf("tab")
+        : this.app.workspace.getLeaf("split", "vertical");
       createdLeaf = true;
     }
 
